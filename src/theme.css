@@ -20,15 +20,8 @@ body[data-umaru-yeah][data-ds-dark-theme] {
   --umaru-line:#73513c;--umaru-answer:#382c23;
 }
 
-/* The fixed design proportion applies to the normal wide conversation only.
-   Opening a right panel and collapsing the sidebar keep native layout rules. */
-body[data-umaru-yeah] .mP3x-q_frame[data-rightbar-collapsed]:not([data-sidebar-collapsed]) {
-  grid-template-columns:calc(310 * var(--umaru-u)) minmax(0,1fr) minmax(0,0px)!important;
-  --dsh-windows-sidebar-width:calc(310 * var(--umaru-u))!important;
-}
-body[data-umaru-yeah] .mP3x-q_frame[data-rightbar-collapsed]:not([data-sidebar-collapsed])>.mP3x-q_handle[data-side="sidebar"] {
-  display:none;
-}
+/* Keep the host's resizable grid, saved sidebar width, caption width token,
+   and native drag handle. Theme decoration follows the available column. */
 body[data-umaru-yeah] .mP3x-q_frame:not([data-sidebar-collapsed]) .mP3x-q_sidebarCol {overflow:visible;z-index:2;}
 body[data-umaru-yeah] .mP3x-q_centerCol {border-radius:0;}
 body[data-umaru-yeah] .mP3x-q_sidebarCol {--dsw-specific-sidebar-fill:var(--umaru-sidebar);}
