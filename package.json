@@ -1,0 +1,22 @@
+{
+  "name": "dsh-theme-umaru-yeah",
+  "version": "1.0.0",
+  "private": true,
+  "description": "小埋耶 · 橘子奶油零食屋。基于选定设计图的 DeepSeek Harness 主题。",
+  "author": "dingfz-cyber",
+  "homepage": "https://github.com/dingfz-cyber/dsh-theme-umaru-yeah#readme",
+  "repository": {"type": "git", "url": "https://github.com/dingfz-cyber/dsh-theme-umaru-yeah.git"},
+  "bugs": {"url": "https://github.com/dingfz-cyber/dsh-theme-umaru-yeah/issues"},
+  "icon": "assets/icon.jpg",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {".": "./lib/index.js", "./client": "./lib/client.js", "./locale/*.json": "./locale/*.json", "./package.json": "./package.json"},
+  "files": ["lib", "assets", "locale", "cordis.patch.yml", "README.md", "LICENSE"],
+  "engines": {"node": ">=20"},
+  "scripts": {"build": "node scripts/build.mjs", "check": "node --check lib/index.js && node --check lib/client.js", "verify": "node scripts/verify.mjs"},
+  "dsh": {
+    "bundle": {"patch": "./cordis.patch.yml"},
+    "client": {"inject": ["@deepseek-ai/dsh-client-ui-theme", "@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-client-ui-sidebar"], "platform": "web", "immediately": true}
+  }
+}

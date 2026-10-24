@@ -1,0 +1,10 @@
+node_modules/
+tmp/
+*.tgz
+*.zip
+.env*
+.npmrc
+references/
+design/
+preview/
+release/

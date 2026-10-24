@@ -1,0 +1,23 @@
+Use case: precise-object-edit.
+Input image 1 is the sole EDIT TARGET: an existing 1487 × 1058 pixel theme screenshot. This is an exact background-plate extraction, NOT a redesign, NOT a restyle.
+Primary request: remove ONLY the interactive application UI and inpaint those tiny areas to the immediately surrounding existing flat ivory or soft apricot background. Return the clean full-canvas decorative background plate at the identical 1487 × 1058 composition and same aspect ratio.
+
+KEEP EXACTLY, WITHOUT MOVING, RESIZING, REDRAWING, REPOSING OR RECOLORING:
+- The soft apricot sidebar background from x=0 to x≈310 and the main ivory background from x≈310 onward. Keep this vertical boundary exactly at 310/1487 of the canvas.
+- The entire bottom-left tilted white polaroid of chibi Umaru making the peace sign, green tape at its top-left, surrounding heart stickers, small hamster sticker at bottom-right of the polaroid, and paw prints. Keep all their original strokes, facial expression, positions, original approximate bounds x=0..309, y=622..1040.
+- The upper-right gingham peach/orange curtain, window ledge, small potted green plant, dangling hamster charm, dangling yellow stars, nearby hearts, and the handwritten Japanese decorative slogan “今日も 元気いっぱい！”. Preserve exactly at their existing top/right positions.
+- The large lower-right seated chibi Umaru holding a green potato-chip bag and a cola bottle. Preserve her exact identity, expression, pose, costume, body/face proportions, outlines and colors; approximately x=994..1460, y=437..948. This is the most important invariant. Do NOT create a new version of the character.
+- All surrounding existing lower-right pillows, pink cushion, orange hamster cushion, snack boxes, chips, flowers, bubbles, floor/rug shapes and bottom-right game controller. Keep existing occlusion and clipping at canvas edges.
+- Preserve illustration style, background texture and all unedited pixels as closely as possible.
+
+REMOVE ALL THE FOLLOWING APPLICATION UI, replacing with matching uninterrupted nearby background:
+1. Top-left orange whale logo, “deepseek HARNESS” lettering, and the small upper-left hamster+“小埋耶” badge.
+2. The complete orange “新会话” button including its rounded orange rectangle and plus icon.
+3. All sidebar navigation icons and words “插件”, “自动化任务”, “工作区”; the horizontal divider; “最近对话”; ALL three recent chat rows including selected orange row background, chat icons and text.
+4. Main top title “今天也要元气满满”, edit pencil, search icon, ellipsis.
+5. Upper-right user message rounded bubble, message text, circular user avatar, timestamp.
+6. Main assistant blue whale avatar/circle, all assistant message text and bullets, the large rounded pale message bubble, and timestamp.
+7. The complete bottom input composer: white rounded rectangle, border, paperclip, placeholder, model dropdown, blue logo, dropdown arrow, orange send circle and send icon. Reconstruct any small rug/floor/snack continuation behind the removed rectangle naturally from adjacent pixels.
+8. Bottom-left settings gear and “设置” text.
+There must be NO app branding, UI widgets, buttons, avatars, chat text or timestamps remaining. The Japanese decorative slogan and printed snack package text MUST remain because these are illustration, not UI.
+Do not add objects, text, labels, watermarks, frames, or transparent checkerboards. Full opaque clean background plate.
