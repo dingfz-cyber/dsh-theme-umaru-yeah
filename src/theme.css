@@ -147,6 +147,14 @@ body[data-umaru-yeah] [data-composer-card]:not(.GRgSLq_cardWorkspaceTrigger) {
   padding:calc(12 * var(--umaru-u)) calc(16 * var(--umaru-u)) calc(12 * var(--umaru-u)) calc(62 * var(--umaru-u));
   background:var(--dsw-specific-input-major);font-size:calc(21 * var(--umaru-u));
 }
+/* Grow into the unused left space while keeping the previous right edge.
+   The matching end margin offsets half the added width; narrow panes use 0. */
+body[data-umaru-yeah] .an3WzG_root[data-phase="active"] .an3WzG_composerSeat [data-composer-card]:not(.GRgSLq_cardWorkspaceTrigger) {
+  --umaru-left-extension:min(calc(320 * var(--umaru-u)),max(0px,calc((100% - 802 * var(--umaru-u)) / 2)));
+  width:calc(762 * var(--umaru-u) + var(--umaru-left-extension));
+  max-width:calc(100% - 40 * var(--umaru-u));
+  margin-inline-end:var(--umaru-left-extension);
+}
 body[data-umaru-yeah] .GRgSLq_card>.GRgSLq_scroll {grid-column:1;min-width:0;max-height:min(28vh,180px);margin:0;}
 body[data-umaru-yeah] .GRgSLq_card .GRgSLq_input {padding:0;min-height:calc(36 * var(--umaru-u));line-height:calc(36 * var(--umaru-u));}
 body[data-umaru-yeah] .GRgSLq_card .GRgSLq_placeholder {inset:0;line-height:calc(36 * var(--umaru-u));}
