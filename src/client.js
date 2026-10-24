@@ -3,6 +3,7 @@ window.__ModuleLoader__.load({
   id: 'dsh-theme-umaru-yeah',
   factory: (require) => {
     const React = require('react');
+    const primitives = require('@deepseek-ai/dsh-client-ui-primitives');
     const ART = /*__UMARU_ASSETS__*/ {};
     const CSS = /*__UMARU_CSS__*/ "";
     const ID = 'dsh-theme-umaru-yeah';
@@ -82,7 +83,62 @@ window.__ModuleLoader__.load({
       return wide ? React.createElement('div',{className:'umaru-sidebar-art','aria-hidden':true},crop('umaru-polaroid')) : null;
     }
 
+    function HeaderCommandButton({useCommands,canInvoke,invokeCommand,commandId,className,Icon}) {
+      const command=useCommands(rows=>rows.find(row=>row.id===commandId));
+      // Missing commands or a changed DSH bridge leave the native sidebar
+      // controls available instead of displaying a decorative, inert button.
+      if(!command || !Icon || !canInvoke())return null;
+      return React.createElement('button',{
+        type:'button',className:`umaru-header-button ${className}`,
+        'aria-label':command.label,'aria-keyshortcuts':command.aria,
+        title:command.label,onClick:event=>{
+          // Do not let this same click close the newly opened sidebar search.
+          if(commandId==='session.search')event.stopPropagation();
+          invokeCommand(commandId);
+        }
+      },React.createElement(Icon,{size:23,'aria-hidden':true}));
+    }
+
+    function installHeaderCommands(ctx) {
+      // DSH 0.2.1-rc.3 uses this registry for native menu commands. Keep this
+      // compatibility bridge optional and isolated: it opens the existing
+      // rename dialog / session search and never edits a title itself.
+      ctx.inject(['shortcuts'],scope=>{
+        if(typeof scope.shortcuts?.catalog?.getSnapshot!=='function'
+          || typeof scope.shortcuts?.catalog?.subscribe!=='function')return;
+        const canInvoke=()=>typeof scope.shortcuts?.registry?.invoke==='function'
+          && typeof scope.shortcuts?.catalog?.getSnapshot==='function'
+          && typeof primitives.modalSelector==='string';
+        const invokeCommand=commandId=>{
+          if(!canInvoke() || !scope.shortcuts.catalog.getSnapshot().some(row=>row.id===commandId))return;
+          let target=document.activeElement;
+          while(target?.shadowRoot?.activeElement && !target.matches('webview[data-sidebar-browser-frame]'))target=target.shadowRoot.activeElement;
+          const top=[...document.querySelectorAll(primitives.modalSelector)].at(-1);
+          const context={
+            target,
+            region:target?.closest('.xterm')?'terminal':target?.matches('input, textarea, select, [contenteditable="true"], [contenteditable=""]')?'editable':'page',
+            modal:top?.dataset.shortcutModal ?? (top? 'other':null)
+          };
+          try {
+            scope.shortcuts.registry.invoke(commandId,context);
+          } catch {
+            // A future DSH version may change this internal bridge. Native
+            // sidebar search and session menu remain the fallback.
+            console.warn('小埋耶: native header command is unavailable',commandId);
+          }
+        };
+        const register=(name,id,order,commandId,className,Icon)=>scope.slots.inject(name,()=>scope.slots.register({
+          name,id,order,
+          inject:()=>({hooks:{commands:scope.shortcuts.catalog},canInvoke,invokeCommand,commandId,className,Icon})
+        },HeaderCommandButton));
+        register('conversation.session.header.actions','umaru-rename',-100,'session.rename','umaru-rename',primitives.IconEditOutlineRegular);
+        // Native open-in-app is -10; the native More menu uses the default 0.
+        register('conversation.session.header.utilities','umaru-search',-1,'session.search','umaru-search',primitives.IconSearchOutlineRegular);
+      });
+    }
+
     function apply(ctx) {
+      installHeaderCommands(ctx);
       ctx.effect(() => ctx.theme.overrideTokens(ID,tokens),'umaru: palette');
       ctx.effect(() => {
         const body=document.body;

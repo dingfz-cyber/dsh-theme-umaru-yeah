@@ -69,16 +69,44 @@ check('package metadata resolves the plugin entry points and bundle name', () =>
   }
 });
 
-function harness({ previous = null, scale = '', withTargets = true } = {}) {
+function harness({ previous = null, scale = '', withTargets = true,
+  withShortcuts = true, withCatalog = true, withSnapshot = true, withSubscribe = true,
+  withInvoke = true, withModalSelector = true, missingIcons = [],
+} = {}) {
   const created = [];
   const observers = [];
   const frames = new Map();
   const listeners = new Map();
   const networkCalls = [];
+  const commandCalls = [];
+  const warnings = [];
+  const catalogSubscribers = new Set();
+  const serviceInjections = [];
+  let commands = [
+    { id: 'session.rename', label: 'Rename current session', aria: 'Control+Shift+R' },
+    { id: 'session.search', label: 'Search sessions', aria: 'Control+P' },
+  ];
+  const catalog = {};
+  if (withSnapshot) catalog.getSnapshot = () => commands;
+  if (withSubscribe) catalog.subscribe = (callback) => {
+    catalogSubscribers.add(callback);
+    return () => catalogSubscribers.delete(callback);
+  };
+  const registry = {};
+  if (withInvoke) registry.invoke = function (id, context) {
+    assert.equal(this, registry, 'dispatch preserves the native registry receiver');
+    commandCalls.push({ id, context });
+  };
+  const shortcuts = { registry, ...(withCatalog ? { catalog } : {}) };
+  const primitives = {
+    ...(withModalSelector ? { modalSelector: '[data-test-shortcut-modal]' } : {}),
+    ...Object.fromEntries(['IconEditOutlineRegular', 'IconSearchOutlineRegular']
+      .filter((name) => !missingIcons.includes(name)).map((name) => [name, function Icon() {}])),
+  };
   let frameId = 0;
   let nodeId = 0;
   let module;
-  const fixture = { height: 1058, chrome: 0, targets: [], logo: null, shell: null };
+  const fixture = { height: 1058, chrome: 0, targets: [], logo: null, shell: null, modals: [], modalQueries: 0 };
   const forbidNetwork = (kind) => (...args) => {
     networkCalls.push({ kind, args: args.length });
     throw new Error(`Unexpected network capability: ${kind}`);
@@ -154,6 +182,21 @@ function harness({ previous = null, scale = '', withTargets = true } = {}) {
       }
     }
     getBoundingClientRect() { return { width: 1487, height: fixture.height }; }
+    matches(selector) {
+      if (selector === 'webview[data-sidebar-browser-frame]') {
+        return this.tagName === 'webview' && this.attributes.has('data-sidebar-browser-frame');
+      }
+      if (selector === 'input, textarea, select, [contenteditable="true"], [contenteditable=""]') {
+        return ['input', 'textarea', 'select'].includes(this.tagName)
+          || ['true', ''].includes(this.getAttribute('contenteditable'));
+      }
+      if (selector === '.xterm') return this.className.split(/\s+/).includes('xterm');
+      throw new Error(`Unexpected focus selector: ${selector}`);
+    }
+    closest(selector) {
+      for (let node = this; node; node = node.parentElement) if (node.matches(selector)) return node;
+      return null;
+    }
   }
   const docRoot = new Element('#document', true);
   const nativeChild = (parent, name) => {
@@ -185,7 +228,7 @@ function harness({ previous = null, scale = '', withTargets = true } = {}) {
   })));
   const initialSnapshot = nativeSnapshot();
   const document = {
-    head, body,
+    head, body, activeElement: body,
     createElement: (name) => {
       assert.ok(['style', 'div'].includes(name), `unexpected DOM creation: ${name}`);
       return new Element(name);
@@ -197,7 +240,12 @@ function harness({ previous = null, scale = '', withTargets = true } = {}) {
       if (selector === LOGO) return fixture.logo;
       throw new Error(`Unexpected document query (possible native-content access): ${selector}`);
     },
-    querySelectorAll: (selector) => { assert.equal(selector, TARGETS); return [...fixture.targets]; },
+    querySelectorAll: (selector) => {
+      if (selector === TARGETS) return [...fixture.targets];
+      assert.equal(selector, primitives.modalSelector, 'only native shortcut modal context is queried');
+      fixture.modalQueries += 1;
+      return [...fixture.modals];
+    },
   };
   class Observer {
     constructor(callback) { this.callback = callback; this.active = false; observers.push(this); }
@@ -235,18 +283,79 @@ function harness({ previous = null, scale = '', withTargets = true } = {}) {
     fetch: forbidNetwork('fetch'), XMLHttpRequest: forbidNetwork('XMLHttpRequest'),
     WebSocket: forbidNetwork('WebSocket'), EventSource: forbidNetwork('EventSource'),
     navigator: { sendBeacon: forbidNetwork('sendBeacon') },
+    console: { warn: (...args) => warnings.push(args) },
   });
   new Script(bundle, { filename: 'lib/client.js' }).runInContext(context, { timeout: 2000 });
   assert.equal(module.id, ID);
   const plugin = module.factory((name) => {
-    assert.equal(name, 'react', 'only the host React instance is required');
-    return { createElement: (type, props, ...children) => ({ type, props, children }) };
+    if (name === 'react') return { createElement: (type, props, ...children) => ({ type, props, children }) };
+    assert.equal(name, '@deepseek-ai/dsh-client-ui-primitives', 'only host React and native UI primitives are required');
+    return primitives;
   });
   assert.deepEqual(Array.from(plugin.inject), ['theme', 'slots']);
   const palettes = new Map();
   const slots = new Map();
   const cleanups = [];
+  const expectedSlots = {
+    'umaru-polaroid': ['sidebar.footer.action', 15],
+    'umaru-rename': ['conversation.session.header.actions', -100],
+    'umaru-search': ['conversation.session.header.utilities', -1],
+  };
+  const makeSlots = (cleanupBucket) => ({
+    inject: (name, factory) => {
+      assert.ok(Object.values(expectedSlots).some(([slot]) => slot === name), `unexpected slot injection: ${name}`);
+      const stop = factory();
+      assert.equal(typeof stop, 'function'); cleanupBucket.push(stop);
+    },
+    register: (options, component) => {
+      assert.deepEqual([options.name, options.order], expectedSlots[options.id], 'native slot and order are preserved');
+      assert.ok(!slots.has(options.id), 'no duplicate registration');
+      const subscriptions = new Map();
+      const record = { options, component, active: true, props: {}, tree: undefined };
+      // This models the renderer's declarative spec.inject hooks contract, not
+      // React internals. Native React rendering remains part of live acceptance.
+      record.render = (props = record.props) => {
+        assert.ok(record.active, 'unmounted slots cannot render');
+        record.props = props;
+        const { hooks = {}, ...injected } = options.inject?.() ?? {};
+        const hookProps = {};
+        for (const [name, store] of Object.entries(hooks)) {
+          const hookName = `use${name[0].toUpperCase()}${name.slice(1)}`;
+          hookProps[hookName] = (select) => {
+            assert.equal(typeof select, 'function');
+            if (!subscriptions.has(name)) {
+              subscriptions.set(name, store.subscribe(() => { if (record.active) record.render(); }));
+            }
+            return select(store.getSnapshot());
+          };
+        }
+        record.tree = component({ ...injected, ...hookProps, ...props });
+        return record.tree;
+      };
+      slots.set(options.id, record);
+      return () => {
+        record.active = false;
+        for (const unsubscribe of subscriptions.values()) unsubscribe();
+        subscriptions.clear();
+        slots.delete(options.id);
+      };
+    },
+  });
   const ctx = {
+    inject: (names, factory) => {
+      assert.deepEqual(Array.from(names), ['shortcuts'], 'the header bridge is optional');
+      const childCleanups = [];
+      const injection = { active: true };
+      serviceInjections.push(injection);
+      cleanups.push(() => {
+        injection.active = false;
+        while (childCleanups.length) childCleanups.pop()();
+      });
+      if (withShortcuts) {
+        const stop = factory({ shortcuts, slots: makeSlots(childCleanups) });
+        if (stop !== undefined) { assert.equal(typeof stop, 'function'); childCleanups.push(stop); }
+      }
+    },
     effect: (effect) => { const stop = effect(); assert.equal(typeof stop, 'function'); cleanups.push(stop); },
     theme: { overrideTokens: (name, values) => {
       assert.equal(name, ID);
@@ -262,20 +371,7 @@ function harness({ previous = null, scale = '', withTargets = true } = {}) {
       palettes.set(name, values);
       return () => palettes.delete(name);
     } },
-    slots: {
-      inject: (name, factory) => {
-        assert.equal(name, 'sidebar.footer.action');
-        const stop = factory();
-        assert.equal(typeof stop, 'function'); cleanups.push(stop);
-      },
-      register: (options, component) => {
-        assert.equal(options.name, 'sidebar.footer.action');
-        assert.equal(options.id, 'umaru-polaroid');
-        assert.equal(options.order, 15);
-        assert.ok(!slots.has(options.id)); slots.set(options.id, component);
-        return () => slots.delete(options.id);
-      },
-    },
+    slots: makeSlots(cleanups),
   };
   const flush = () => {
     let turns = 0;
@@ -296,15 +392,32 @@ function harness({ previous = null, scale = '', withTargets = true } = {}) {
     assert.equal(owned().length, 0, 'all decorations removed, including detached targets');
     assert.equal(styles().length, 0, 'stylesheet removed');
     assert.equal(palettes.size, 0, 'palette override released');
-    assert.equal(slots.size, 0, 'footer slot registration released');
+    assert.equal(slots.size, 0, 'all footer and header slot registrations released');
+    assert.equal(catalogSubscribers.size, 0, 'command catalog hook subscriptions released');
+    assert.equal(serviceInjections.filter((entry) => entry.active).length, 0, 'optional service scopes released');
     assert.equal(observers.filter((o) => o.active).length, 0, 'observers disconnected');
     assert.equal(listeners.get('resize')?.size ?? 0, 0, 'resize listener removed');
     assert.equal(frames.size, 0, 'queued animation frame cancelled');
     assert.equal(nativeSnapshot(), initialSnapshot, 'native content preserved after disposal');
     assert.equal(networkCalls.length, 0, 'no network request attempted');
   };
-  return { plugin, ctx, fixture, body, main, nativeChild, conversation, logo, shell, window,
-    frames, observers, listeners, palettes, slots, owned, styles, emit, flush, dispose, assertClean };
+  const setCommands = (rows) => {
+    commands = rows;
+    for (const subscriber of [...catalogSubscribers]) subscriber();
+  };
+  const renderSlot = (id, props) => slots.get(id)?.render(props) ?? null;
+  const clickButton = (button, expectStop = false) => {
+    let stopped = 0;
+    const before = commandCalls.length;
+    button.props.onClick({ stopPropagation: () => {
+      stopped += 1;
+      assert.equal(commandCalls.length, before, 'search stops the originating click before opening native search');
+    } });
+    assert.equal(stopped, expectStop ? 1 : 0, 'only session search stops propagation to the native outside-click listener');
+  };
+  return { plugin, ctx, fixture, document, body, main, nativeChild, conversation, logo, shell, window,
+    frames, observers, listeners, palettes, slots, owned, styles, emit, flush, dispose, assertClean,
+    shortcuts, primitives, commandCalls, warnings, catalogSubscribers, setCommands, renderSlot, clickButton };
 }
 
 check('apply mounts one palette, stylesheet, slot, and decorative pair per target without network', () => {
@@ -315,7 +428,7 @@ check('apply mounts one palette, stylesheet, slot, and decorative pair per targe
   assert.equal(h.owned().length, 4);
   assert.equal(h.observers.filter((o) => o.active).length, 1);
   assert.equal(h.listeners.get('resize').size, 1);
-  const sidebar = h.slots.get('umaru-polaroid');
+  const sidebar = (props) => h.renderSlot('umaru-polaroid', props);
   assert.equal(sidebar({ wide: false }), null, 'collapsed sidebar has no artwork');
   const tree = sidebar({ wide: true });
   assert.equal(tree.props['aria-hidden'], true);
@@ -389,6 +502,163 @@ check('a temporarily empty layout activates later without touching native data',
   h.body.attributes.set(ATTRIBUTE, 'later-owner');
   h.dispose(); h.assertClean();
   assert.equal(h.body.getAttribute(ATTRIBUTE), 'later-owner', 'do not remove a later owner attribute');
+});
+
+check('header actions use native catalog labels and dispatch commands only when clicked', () => {
+  const h = harness(); h.plugin.apply(h.ctx); h.flush();
+  assert.equal(h.slots.size, 3, 'one artwork slot and two native-command slots');
+  for (const [id, commandId, label, shortcut] of [
+    ['umaru-rename', 'session.rename', 'Rename current session', 'Control+Shift+R'],
+    ['umaru-search', 'session.search', 'Search sessions', 'Control+P'],
+  ]) {
+    const before = h.commandCalls.length;
+    const button = h.renderSlot(id);
+    h.renderSlot(id); h.emit(); h.flush();
+    assert.equal(h.commandCalls.length, before, 'registration, render, and layout updates do not execute commands');
+    assert.equal(button.type, 'button');
+    assert.equal(button.props.type, 'button', 'header actions cannot submit the composer');
+    assert.equal(button.props['aria-label'], label);
+    assert.equal(button.props.title, label);
+    assert.equal(button.props['aria-keyshortcuts'], shortcut);
+    assert.equal(button.children[0].props['aria-hidden'], true);
+    h.clickButton(button, commandId === 'session.search');
+    assert.equal(h.commandCalls.length, before + 1, 'one click dispatches exactly once');
+    assert.equal(h.commandCalls.at(-1).id, commandId);
+    assert.equal(h.commandCalls.at(-1).context.target, h.body);
+    assert.equal(h.commandCalls.at(-1).context.region, 'page');
+    assert.equal(h.commandCalls.at(-1).context.modal, null);
+  }
+  assert.equal(h.fixture.modalQueries, 2, 'focus/modal context is read on clicks only');
+  h.dispose(); h.assertClean();
+});
+
+check('catalog updates hide unavailable commands, refresh labels, and reject stale button clicks', () => {
+  const h = harness(); h.plugin.apply(h.ctx);
+  const staleRename = h.renderSlot('umaru-rename');
+  h.renderSlot('umaru-search');
+  assert.equal(h.catalogSubscribers.size, 2, 'each rendered command reads the injected live catalog');
+  h.setCommands([{ id: 'session.search', label: '查找会话', aria: 'Meta+P' }]);
+  assert.equal(h.slots.get('umaru-rename').tree, null, 'removed commands have no inert button');
+  assert.equal(h.slots.get('umaru-search').tree.props['aria-label'], '查找会话');
+  assert.equal(h.slots.get('umaru-search').tree.props['aria-keyshortcuts'], 'Meta+P');
+  h.clickButton(staleRename);
+  assert.equal(h.commandCalls.length, 0, 'click rechecks the catalog after a prior render');
+  h.setCommands([{ id: 'session.rename', label: '重命名当前会话', aria: 'Meta+Shift+R' }]);
+  assert.equal(h.slots.get('umaru-search').tree, null);
+  const restored = h.slots.get('umaru-rename').tree;
+  assert.equal(restored.props['aria-label'], '重命名当前会话');
+  h.clickButton(restored);
+  assert.equal(h.commandCalls[0].id, 'session.rename');
+  h.dispose(); h.assertClean();
+});
+
+check('missing optional services, API methods, modal contract, or icons leave the theme usable', () => {
+  const cases = [
+    { withShortcuts: false }, { withCatalog: false }, { withSnapshot: false },
+    { withSubscribe: false }, { withInvoke: false }, { withModalSelector: false },
+    { missingIcons: ['IconEditOutlineRegular', 'IconSearchOutlineRegular'] },
+  ];
+  for (const options of cases) {
+    const h = harness(options); h.plugin.apply(h.ctx); h.flush();
+    assert.equal(h.renderSlot('umaru-rename'), null, JSON.stringify(options));
+    assert.equal(h.renderSlot('umaru-search'), null, JSON.stringify(options));
+    assert.equal(h.owned().length, 4, 'optional header bridge does not gate decoration');
+    assert.equal(h.palettes.size, 1); assert.equal(h.styles().length, 1);
+    assert.ok(h.renderSlot('umaru-polaroid', { wide: true }));
+    assert.equal(h.commandCalls.length, 0);
+    h.dispose(); h.assertClean();
+  }
+  const h = harness({ missingIcons: ['IconEditOutlineRegular'] }); h.plugin.apply(h.ctx);
+  assert.equal(h.renderSlot('umaru-rename'), null);
+  assert.equal(h.renderSlot('umaru-search').type, 'button', 'one missing icon does not disable the other native command');
+  h.dispose(); h.assertClean();
+});
+
+check('click context preserves editable, terminal, shadow-root, browser-frame, and top-modal semantics', () => {
+  const h = harness(); h.plugin.apply(h.ctx);
+  const button = h.renderSlot('umaru-search');
+  const click = (target, region, modals = [], expectedModal = null) => {
+    h.document.activeElement = target; h.fixture.modals = modals;
+    h.clickButton(button, true);
+    const call = h.commandCalls.at(-1);
+    assert.equal(call.id, 'session.search');
+    assert.equal(call.context.target, target, 'the current focused element is passed through');
+    assert.equal(call.context.region, region);
+    assert.equal(call.context.modal, expectedModal);
+  };
+  for (const tag of ['input', 'textarea', 'select']) click(h.nativeChild(h.main, tag), 'editable');
+  for (const value of ['true', '']) {
+    const editor = h.nativeChild(h.main, 'div'); editor.attributes.set('contenteditable', value);
+    click(editor, 'editable');
+  }
+  const readOnly = h.nativeChild(h.main, 'div'); readOnly.attributes.set('contenteditable', 'false');
+  click(readOnly, 'page');
+  const terminal = h.nativeChild(h.main, 'div'); terminal.className = 'xterm';
+  const terminalInput = h.nativeChild(terminal, 'textarea');
+  click(terminalInput, 'terminal');
+  const shadowHost = h.nativeChild(h.main, 'div');
+  const innerHost = h.nativeChild(h.main, 'div');
+  const shadowInput = h.nativeChild(h.main, 'input');
+  shadowHost.shadowRoot = { activeElement: innerHost };
+  innerHost.shadowRoot = { activeElement: shadowInput };
+  h.document.activeElement = shadowHost; h.fixture.modals = [];
+  h.clickButton(button, true);
+  assert.equal(h.commandCalls.at(-1).context.target, shadowInput, 'nested shadow focus is resolved at click time');
+  assert.equal(h.commandCalls.at(-1).context.region, 'editable');
+  const browser = h.nativeChild(h.main, 'webview');
+  browser.attributes.set('data-sidebar-browser-frame', '');
+  browser.shadowRoot = { activeElement: shadowInput };
+  click(browser, 'page');
+  const underneath = { dataset: { shortcutModal: 'settings' } };
+  const top = { dataset: { shortcutModal: 'shortcuts' } };
+  click(h.body, 'page', [underneath, top], 'shortcuts');
+  click(h.body, 'page', [underneath, { dataset: {} }], 'other');
+  click(h.body, 'page');
+  h.dispose(); h.assertClean();
+});
+
+check('a bridge removed after render does not dispatch and native command errors remain contained', () => {
+  const h = harness(); h.plugin.apply(h.ctx);
+  const button = h.renderSlot('umaru-rename');
+  const originalInvoke = h.shortcuts.registry.invoke;
+  delete h.shortcuts.registry.invoke;
+  h.clickButton(button);
+  assert.equal(h.commandCalls.length, 0);
+  assert.equal(h.renderSlot('umaru-rename'), null);
+  h.shortcuts.registry.invoke = originalInvoke;
+  delete h.primitives.modalSelector;
+  h.clickButton(button);
+  assert.equal(h.commandCalls.length, 0);
+  assert.equal(h.renderSlot('umaru-rename'), null);
+  h.primitives.modalSelector = '[data-test-shortcut-modal]';
+  h.shortcuts.registry.invoke = () => { throw new Error('Simulated changed native bridge'); };
+  assert.doesNotThrow(() => h.clickButton(button));
+  assert.equal(h.warnings.length, 1, 'a native error gives one bounded diagnostic');
+  assert.equal(h.warnings[0][1], 'session.rename');
+  h.dispose(); h.assertClean();
+});
+
+check('rendered header slots unsubscribe on disposal and reactivate without stale handlers or duplicate slots', () => {
+  const h = harness(); h.plugin.apply(h.ctx);
+  h.renderSlot('umaru-rename'); h.renderSlot('umaru-search');
+  const oldSlots = [...h.slots.values()];
+  const queuedNotifications = [...h.catalogSubscribers];
+  assert.equal(queuedNotifications.length, 2);
+  h.dispose(); h.assertClean();
+  for (const callback of queuedNotifications) callback();
+  h.setCommands([{ id: 'session.search', label: 'Search after reactivation' }]);
+  h.assertClean();
+  assert.ok(oldSlots.every((slot) => !slot.active));
+  h.plugin.apply(h.ctx); h.flush();
+  assert.equal(h.slots.size, 3);
+  assert.equal(h.renderSlot('umaru-rename'), null);
+  const search = h.renderSlot('umaru-search');
+  assert.equal(search.props['aria-label'], 'Search after reactivation');
+  assert.equal(h.catalogSubscribers.size, 2);
+  assert.equal(h.commandCalls.length, 0, 'catalog updates and reactivation do not execute commands');
+  h.clickButton(search, true);
+  assert.equal(h.commandCalls.length, 1);
+  h.dispose(); h.assertClean();
 });
 
 console.log(`Verified ${passed} checks. Visual layout and native controls still require live acceptance.`);
