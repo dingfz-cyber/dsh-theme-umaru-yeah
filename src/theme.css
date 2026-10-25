@@ -181,7 +181,9 @@ body[data-umaru-yeah] [data-chat-flow-kind="assistant-step"] .md-table-wide {wid
 /* Preserve the host's in-flow sticky composer and scroll measurements. A tall
    draft must never subtract its height from the message viewport a second time. */
 body[data-umaru-yeah] .an3WzG_root[data-phase="active"] .V4vHZW_scroll {margin-right:var(--umaru-transcript-clearance);}
-body[data-umaru-yeah] .an3WzG_root[data-phase="active"] .an3WzG_composerSeat {background:transparent;padding-bottom:max(0px,calc(44 * var(--umaru-u) - 32px));}
+/* Preserve DSH's native sticky-composer fade and opaque lower background so
+   messages cannot show through behind the input, status row, or bottom gap. */
+body[data-umaru-yeah] .an3WzG_root[data-phase="active"] .an3WzG_composerSeat {padding-bottom:max(0px,calc(44 * var(--umaru-u) - 32px));}
 body[data-umaru-yeah] .GRgSLq_root {align-items:center;padding:0 calc(20 * var(--umaru-u));}
 body[data-umaru-yeah] [data-composer-card]:not(.GRgSLq_cardWorkspaceTrigger) {
   min-height:calc(94 * var(--umaru-u));max-width:calc(762 * var(--umaru-u));width:calc(100% - 40 * var(--umaru-u));
